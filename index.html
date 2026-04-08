@@ -9,108 +9,110 @@
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; padding: 20px; background: #f0f2f5; }
         .container { width: 100%; max-width: 400px; background: white; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
-        h2 { margin-top: 0; color: #1a1a1a; font-size: 1.5rem; }
-        #chat { height: 180px; border: 1px solid #eee; overflow-y: auto; margin-bottom: 15px; padding: 10px; border-radius: 10px; background: #fdfdfd; text-align: left; font-size: 0.9rem; }
-        input { width: calc(100% - 24px); padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; transition: border 0.2s; }
-        input:focus { border-color: #007bff; }
+        h2 { margin-top: 0; color: #1a1a1a; }
+        #chat { height: 250px; border: 1px solid #eee; overflow-y: auto; margin-bottom: 15px; padding: 10px; border-radius: 10px; background: #fdfdfd; text-align: left; font-size: 0.9rem; display: flex; flex-direction: column; }
+        input { width: calc(100% - 24px); padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
         button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
-        .status { font-size: 0.85rem; margin-bottom: 15px; color: #666; font-weight: 500; }
-        #qrcode { display: flex; justify-content: center; margin-top: 20px; padding: 10px; background: white; }
-        .qr-label { font-size: 0.8rem; color: #888; margin-top: 10px; }
-        .message { margin-bottom: 8px; padding: 6px 10px; border-radius: 6px; }
+        .status { font-size: 0.85rem; margin-bottom: 15px; color: #666; }
+        #qrcode { display: flex; justify-content: center; margin-top: 20px; }
+        .msg-box { margin-bottom: 8px; padding: 8px 12px; border-radius: 12px; max-width: 80%; }
+        .name-tag { font-size: 0.7rem; font-weight: bold; margin-bottom: 2px; display: block; opacity: 0.7; }
         .received { background: #e9ecef; align-self: flex-start; }
-        .sent { background: #007bff; color: white; align-self: flex-end; text-align: right; }
+        .sent { background: #007bff; color: white; align-self: flex-end; }
+        #setup-name { margin-bottom: 20px; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h2>Instant Share</h2>
-    <div id="status" class="status">Connecting...</div>
-    <div id="chat"></div>
-    <input type="text" id="messageInput" placeholder="Paste link or text here...">
-    <button onclick="sendMessage()">Send</button>
     
-    <div id="setup-area">
-        <div id="qrcode"></div>
-        <p class="qr-label" id="qrText">Scan this with your phone to connect</p>
+    <div id="setup-name">
+        <p>Give this device a name:</p>
+        <input type="text" id="deviceName" placeholder="e.g. PC or Phone">
+        <button onclick="startApp()">Start Sharing</button>
+    </div>
+
+    <div id="main-app" style="display:none;">
+        <div id="status" class="status">Connecting...</div>
+        <div id="chat"></div>
+        <input type="text" id="messageInput" placeholder="Paste link or text...">
+        <button onclick="sendMessage()">Send</button>
+        
+        <div id="setup-area">
+            <div id="qrcode"></div>
+            <p style="font-size:0.8rem; color:#888; margin-top:10px;">Scan to connect your other device</p>
+        </div>
     </div>
 </div>
 
 <script>
-    const chat = document.getElementById('chat');
-    const status = document.getElementById('status');
-    const messageInput = document.getElementById('messageInput');
-    const setupArea = document.getElementById('setup-area');
-
+    let myName = "";
+    let conn;
     const urlParams = new URLSearchParams(window.location.search);
-    let roomId = urlParams.get('r');
-    const isReceiver = !!roomId;
+    const roomId = urlParams.get('r');
 
-    // Use a short 4-character ID if creating a new room
-    if (!roomId) {
-        roomId = Math.random().toString(36).substring(2, 6);
+    function startApp() {
+        myName = document.getElementById('deviceName').value || "Device";
+        document.getElementById('setup-name').style.display = "none";
+        document.getElementById('main-app').style.display = "block";
+        initPeer();
     }
 
-    const peer = new Peer(isReceiver ? null : roomId);
-    let conn;
+    function initPeer() {
+        const isReceiver = !!roomId;
+        const shortId = isReceiver ? null : Math.random().toString(36).substring(2, 6);
+        const peer = new Peer(isReceiver ? null : shortId);
 
-    peer.on('open', (id) => {
-        if (!isReceiver) {
-            status.innerText = "Ready to connect";
-            const shareUrl = window.location.href.split('?')[0] + "?r=" + id;
-            
-            // Generate QR Code
-            new QRCode(document.getElementById("qrcode"), {
-                text: shareUrl,
-                width: 150,
-                height: 150
-            });
-        } else {
-            status.innerText = "Linking devices...";
-            conn = peer.connect(roomId);
-            setupConnection();
-        }
-    });
+        peer.on('open', (id) => {
+            if (!isReceiver) {
+                const shareUrl = window.location.href.split('?')[0] + "?r=" + id;
+                new QRCode(document.getElementById("qrcode"), { text: shareUrl, width: 140, height: 140 });
+                document.getElementById('status').innerText = `ID: ${id} | Waiting for connection...`;
+            } else {
+                conn = peer.connect(roomId);
+                handleConnection();
+            }
+        });
 
-    peer.on('connection', (c) => {
-        conn = c;
-        setupConnection();
-    });
+        peer.on('connection', (c) => {
+            conn = c;
+            handleConnection();
+        });
+    }
 
-    function setupConnection() {
+    function handleConnection() {
         conn.on('open', () => {
-            status.innerText = "Connected! ✅";
-            setupArea.style.display = "none"; // Hide QR code once connected
+            document.getElementById('status').innerText = "Connected! ✅";
+            document.getElementById('setup-area').style.display = "none";
         });
         conn.on('data', (data) => {
-            addMessage(data, 'received');
-        });
-        conn.on('close', () => {
-            status.innerText = "Disconnected. Refresh to restart.";
-            setupArea.style.display = "block";
+            // Data format is { sender: "Name", text: "Message" }
+            addMessage(data.text, 'received', data.sender);
         });
     }
 
     function sendMessage() {
-        const msg = messageInput.value;
-        if (msg && conn && conn.open) {
-            conn.send(msg);
-            addMessage(msg, 'sent');
-            messageInput.value = "";
+        const input = document.getElementById('messageInput');
+        const text = input.value;
+        if (text && conn && conn.open) {
+            const payload = { sender: myName, text: text };
+            conn.send(payload);
+            addMessage(text, 'sent', myName);
+            input.value = "";
         }
     }
 
-    function addMessage(text, type) {
+    function addMessage(text, type, sender) {
+        const chat = document.getElementById('chat');
         const div = document.createElement('div');
-        div.className = 'message ' + type;
-        div.innerText = text;
+        div.className = `msg-box ${type}`;
+        div.innerHTML = `<span class="name-tag">${sender}</span>${text}`;
         chat.appendChild(div);
         chat.scrollTop = chat.scrollHeight;
     }
 
-    // Allow Enter key to send
-    messageInput.addEventListener("keypress", (e) => {
+    document.getElementById('messageInput').addEventListener("keypress", (e) => {
         if (e.key === "Enter") sendMessage();
     });
 </script>
