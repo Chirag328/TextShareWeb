@@ -3,25 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuickShare P2P + Files</title>
+    <title>QuickShare P2P</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; padding: 20px; background: #f0f2f5; }
+        body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; padding: 20px; background: #f0f2f5; color: #1a1a1a; }
         .container { width: 100%; max-width: 450px; background: white; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
         #chat { height: 300px; border: 1px solid #eee; overflow-y: auto; margin-bottom: 15px; padding: 10px; border-radius: 10px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px; }
-        .msg-box { padding: 10px 14px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; text-align: left; }
+        .msg-box { padding: 10px 14px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; text-align: left; line-height: 1.4; }
         .name-tag { font-size: 0.7rem; font-weight: bold; margin-bottom: 4px; display: block; opacity: 0.7; }
         .received { background: #e9ecef; align-self: flex-start; color: #333; }
         .sent { background: #007bff; color: white; align-self: flex-end; }
         .input-group { display: flex; gap: 8px; margin-bottom: 10px; }
-        input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
-        .btn { padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; }
-        .btn-send { background: #007bff; color: white; }
+        input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+        .btn { padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: 0.2s; }
+        .btn-primary { background: #007bff; color: white; width: 100%; margin-top: 5px; }
+        .btn-outline { background: #f8f9fa; border: 1px solid #ddd; width: 100%; margin-top: 5px; }
         .btn-file { background: #6c757d; color: white; width: 45px; display: flex; align-items: center; justify-content: center; }
-        .id-badge { background: #e2e8f0; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; cursor: pointer; }
-        #qrcode { display: flex; justify-content: center; margin-top: 20px; }
+        .id-badge { background: #e2e8f0; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; }
+        #qrcode { display: flex; justify-content: center; margin: 15px 0; }
         .hidden { display: none; }
+        .choice-box { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
     </style>
 </head>
 <body>
@@ -29,80 +31,92 @@
 <div class="container">
     <h2>Instant Share</h2>
     
-    <div id="setup-name">
-        <p>Device Name:</p>
-        <input type="text" id="deviceName" placeholder="e.g. PC or Phone" style="width: 90%; margin-bottom: 10px;">
-        <button class="btn btn-send" style="width: 100%;" onclick="startApp()">Start</button>
+    <div id="step-1">
+        <p>Step 1: What is your name?</p>
+        <input type="text" id="deviceName" placeholder="e.g. PC or Phone">
+        <button class="btn btn-primary" onclick="goToStep2()">Next</button>
+    </div>
+
+    <div id="step-2" class="hidden">
+        <p>Step 2: Choose an option</p>
+        <div class="choice-box">
+            <button class="btn btn-primary" onclick="initRoom('create')">Create New Room</button>
+            <p style="margin: 5px 0; font-size: 0.8rem; color: #888;">— OR —</p>
+            <input type="text" id="joinInput" placeholder="Enter 4-digit Room ID">
+            <button class="btn btn-outline" onclick="initRoom('join')">Join Room</button>
+        </div>
     </div>
 
     <div id="main-app" class="hidden">
         <div id="status" style="font-size: 0.8rem; margin-bottom: 10px; color: #666;">
-            Room ID: <span id="displayId" class="id-badge" title="Click to copy link">...</span>
+            Room ID: <span id="displayId" class="id-badge">...</span>
         </div>
         <div id="chat"></div>
         
         <div class="input-group">
             <label class="btn btn-file">📎<input type="file" id="fileInput" class="hidden" onchange="sendFile()"></label>
             <input type="text" id="messageInput" placeholder="Type text...">
-            <button class="btn btn-send" onclick="sendMessage()">Send</button>
+            <button class="btn btn-primary" style="width: auto;" onclick="sendMessage()">Send</button>
         </div>
         
         <div id="setup-area">
             <div id="qrcode"></div>
-            <p style="font-size:0.7rem; color:#888; margin-top:10px;">Scan or click the ID above to copy link</p>
+            <p style="font-size:0.7rem; color:#888;">Others can scan this or join using the ID above</p>
         </div>
     </div>
 </div>
 
 <script>
-    let myName = "", conn, peer, fullUrl = "";
-    const urlParams = new URLSearchParams(window.location.search);
-    const roomId = urlParams.get('r');
+    let myName = "", conn, peer, currentRoomId = "";
 
-    function startApp() {
+    function goToStep2() {
         myName = document.getElementById('deviceName').value || "Device";
-        document.getElementById('setup-name').classList.add('hidden');
+        document.getElementById('step-1').classList.add('hidden');
+        document.getElementById('step-2').classList.remove('hidden');
+    }
+
+    function initRoom(mode) {
+        document.getElementById('step-2').classList.add('hidden');
         document.getElementById('main-app').classList.remove('hidden');
-        initPeer();
-    }
 
-    function initPeer() {
-        const isReceiver = !!roomId;
-        // Host uses a random 4-char ID, Receiver lets PeerJS assign one
-        peer = new Peer(isReceiver ? null : Math.random().toString(36).substring(2, 6));
+        if (mode === 'create') {
+            currentRoomId = Math.random().toString(36).substring(2, 6); // 4-char ID
+            peer = new Peer(currentRoomId);
+            
+            peer.on('open', (id) => {
+                document.getElementById('displayId').innerText = id;
+                const url = window.location.href.split('?')[0] + "?r=" + id;
+                new QRCode(document.getElementById("qrcode"), { text: url, width: 120, height: 120 });
+            });
 
-        peer.on('open', (id) => {
-            const currentId = isReceiver ? roomId : id;
-            document.getElementById('displayId').innerText = currentId;
-            fullUrl = window.location.href.split('?')[0] + "?r=" + currentId;
-
-            if (!isReceiver) {
-                new QRCode(document.getElementById("qrcode"), { text: fullUrl, width: 130, height: 130 });
-            } else {
-                conn = peer.connect(roomId);
+            peer.on('connection', (c) => {
+                conn = c;
                 handleConnection();
-            }
-        });
+            });
 
-        peer.on('connection', (c) => { conn = c; handleConnection(); });
+        } else {
+            currentRoomId = document.getElementById('joinInput').value;
+            peer = new Peer(); // Receiver gets a random PeerJS ID
+            
+            peer.on('open', () => {
+                document.getElementById('displayId').innerText = currentRoomId;
+                conn = peer.connect(currentRoomId);
+                handleConnection();
+            });
+        }
     }
-
-    // Click ID to copy URL
-    document.getElementById('displayId').onclick = () => {
-        navigator.clipboard.writeText(fullUrl);
-        alert("Link copied to clipboard!");
-    };
 
     function handleConnection() {
         conn.on('open', () => {
             document.getElementById('status').innerHTML = "Connected! ✅";
             document.getElementById('setup-area').classList.add('hidden');
         });
+        
         conn.on('data', (data) => {
             if (data.type === 'file') {
                 const blob = new Blob([data.file], { type: data.fileType });
                 const url = URL.createObjectURL(blob);
-                addMessage(`File: <a href="${url}" download="${data.fileName}" style="color:inherit;font-weight:bold;">${data.fileName}</a>`, 'received', data.sender, true);
+                addMessage(`Shared a file: <a href="${url}" download="${data.fileName}" style="color:#007bff;font-weight:bold;">${data.fileName}</a>`, 'received', data.sender, true);
             } else {
                 addMessage(data.text, 'received', data.sender);
             }
