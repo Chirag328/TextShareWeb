@@ -10,12 +10,13 @@
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; padding: 20px; background: #f0f2f5; color: #1a1a1a; }
         .container { width: 100%; max-width: 450px; background: white; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
         #chat { height: 300px; border: 1px solid #eee; overflow-y: auto; margin-bottom: 15px; padding: 10px; border-radius: 10px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px; }
-        .msg-box { padding: 10px 14px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; text-align: left; line-height: 1.4; }
+        .msg-box { padding: 10px 14px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; text-align: left; }
         .name-tag { font-size: 0.7rem; font-weight: bold; margin-bottom: 4px; display: block; opacity: 0.7; }
         .received { background: #e9ecef; align-self: flex-start; color: #333; }
         .sent { background: #007bff; color: white; align-self: flex-end; }
         .input-group { display: flex; gap: 8px; margin-bottom: 10px; }
         input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+        input:focus { border-color: #007bff; }
         .btn { padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: 0.2s; }
         .btn-primary { background: #007bff; color: white; width: 100%; margin-top: 5px; }
         .btn-outline { background: #f8f9fa; border: 1px solid #ddd; width: 100%; margin-top: 5px; }
@@ -24,6 +25,7 @@
         #qrcode { display: flex; justify-content: center; margin: 15px 0; }
         .hidden { display: none; }
         .choice-box { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+        .error-msg { color: #dc3545; font-size: 0.8rem; margin-top: -5px; margin-bottom: 10px; display: none; }
     </style>
 </head>
 <body>
@@ -33,7 +35,8 @@
     
     <div id="step-1">
         <p>Set a name for this Device</p>
-        <input type="text" id="deviceName" placeholder="e.g. PC or Phone">
+        <input type="text" id="deviceName" placeholder="Enter name (Required)">
+        <p id="nameError" class="error-msg">Please enter a name to continue.</p>
         <button class="btn btn-primary" onclick="goToStep2()">Next</button>
     </div>
 
@@ -42,7 +45,8 @@
         <div class="choice-box">
             <button class="btn btn-primary" onclick="initRoom('create')">Create New Room</button>
             <p style="margin: 5px 0; font-size: 0.8rem; color: #888;">— OR —</p>
-            <input type="text" id="joinInput" placeholder="Enter 4-digit Room ID">
+            <input type="text" id="joinInput" placeholder="Enter 4-digit Room ID" maxlength="4">
+            <p id="idError" class="error-msg">Enter exactly 4 characters.</p>
             <button class="btn btn-outline" onclick="initRoom('join')">Join Room</button>
         </div>
     </div>
@@ -61,7 +65,7 @@
         
         <div id="setup-area">
             <div id="qrcode"></div>
-            <p style="font-size:0.7rem; color:#888;">Others can scan this or join using the ID above</p>
+            <p style="font-size:0.7rem; color:#888;">Scanning connects automatically</p>
         </div>
     </div>
 </div>
@@ -70,17 +74,32 @@
     let myName = "", conn, peer, currentRoomId = "";
 
     function goToStep2() {
-        myName = document.getElementById('deviceName').value || "Device";
+        const nameInput = document.getElementById('deviceName').value.trim();
+        if (nameInput === "") {
+            document.getElementById('nameError').style.display = "block";
+            return;
+        }
+        myName = nameInput;
         document.getElementById('step-1').classList.add('hidden');
         document.getElementById('step-2').classList.remove('hidden');
     }
 
     function initRoom(mode) {
+        if (mode === 'join') {
+            const idInput = document.getElementById('joinInput').value.trim();
+            if (idInput.length !== 4) {
+                document.getElementById('idError').style.display = "block";
+                return;
+            }
+            currentRoomId = idInput;
+        }
+
+        // Only move to main app if validation passes
         document.getElementById('step-2').classList.add('hidden');
         document.getElementById('main-app').classList.remove('hidden');
 
         if (mode === 'create') {
-            currentRoomId = Math.random().toString(36).substring(2, 6); // 4-char ID
+            currentRoomId = Math.random().toString(36).substring(2, 6);
             peer = new Peer(currentRoomId);
             
             peer.on('open', (id) => {
@@ -95,13 +114,19 @@
             });
 
         } else {
-            currentRoomId = document.getElementById('joinInput').value;
-            peer = new Peer(); // Receiver gets a random PeerJS ID
-            
+            peer = new Peer();
             peer.on('open', () => {
                 document.getElementById('displayId').innerText = currentRoomId;
                 conn = peer.connect(currentRoomId);
                 handleConnection();
+
+                // Error handling if ID doesn't exist
+                setTimeout(() => {
+                    if (!conn.open) {
+                        alert("Could not connect. Please check the Room ID and try again.");
+                        location.reload(); // Restart the app
+                    }
+                }, 5000); 
             });
         }
     }
@@ -116,7 +141,7 @@
             if (data.type === 'file') {
                 const blob = new Blob([data.file], { type: data.fileType });
                 const url = URL.createObjectURL(blob);
-                addMessage(`Shared a file: <a href="${url}" download="${data.fileName}" style="color:#007bff;font-weight:bold;">${data.fileName}</a>`, 'received', data.sender, true);
+                addMessage(`File: <a href="${url}" download="${data.fileName}" style="color:#007bff;font-weight:bold;">${data.fileName}</a>`, 'received', data.sender, true);
             } else {
                 addMessage(data.text, 'received', data.sender);
             }
@@ -125,7 +150,7 @@
 
     function sendMessage() {
         const input = document.getElementById('messageInput');
-        if (input.value && conn?.open) {
+        if (input.value.trim() && conn?.open) {
             conn.send({ sender: myName, text: input.value, type: 'text' });
             addMessage(input.value, 'sent', myName);
             input.value = "";
