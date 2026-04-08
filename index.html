@@ -24,30 +24,29 @@
         .id-badge { background: #e2e8f0; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; }
         #qrcode { display: flex; justify-content: center; margin: 15px 0; }
         .hidden { display: none; }
-        .choice-box { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
         .error-msg { color: #dc3545; font-size: 0.8rem; margin-top: -5px; margin-bottom: 10px; display: none; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Instant Share</h2>
+    <h2 id="title">Instant Share</h2>
     
     <div id="step-1">
-        <p>Set a name for this Device</p>
-        <input type="text" id="deviceName" placeholder="Enter name (Required)">
-        <p id="nameError" class="error-msg">Please enter a name to continue.</p>
+        <p>Provide a name for this Device Bakka Yaro</p>
+        <input type="text" id="deviceName" placeholder="Name is required">
+        <p id="nameError" class="error-msg">Please enter a name.</p>
         <button class="btn btn-primary" onclick="goToStep2()">Next</button>
     </div>
 
     <div id="step-2" class="hidden">
-        <p>Choose an option</p>
-        <div class="choice-box">
+        <p>Join or Create</p>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
             <button class="btn btn-primary" onclick="initRoom('create')">Create New Room</button>
-            <p style="margin: 5px 0; font-size: 0.8rem; color: #888;">— OR —</p>
-            <input type="text" id="joinInput" placeholder="Enter 4-digit Room ID" maxlength="4">
-            <p id="idError" class="error-msg">Enter exactly 4 characters.</p>
-            <button class="btn btn-outline" onclick="initRoom('join')">Join Room</button>
+            <hr style="width:100%; border:0; border-top:1px solid #eee;">
+            <input type="text" id="joinInput" placeholder="4-digit Room ID" maxlength="4">
+            <p id="idError" class="error-msg">ID must be exactly 4 digits.</p>
+            <button class="btn btn-outline" id="joinBtn" onclick="initRoom('join')">Join Room</button>
         </div>
     </div>
 
@@ -56,13 +55,11 @@
             Room ID: <span id="displayId" class="id-badge">...</span>
         </div>
         <div id="chat"></div>
-        
         <div class="input-group">
             <label class="btn btn-file">📎<input type="file" id="fileInput" class="hidden" onchange="sendFile()"></label>
-            <input type="text" id="messageInput" placeholder="Type text...">
+            <input type="text" id="messageInput" placeholder="Message...">
             <button class="btn btn-primary" style="width: auto;" onclick="sendMessage()">Send</button>
         </div>
-        
         <div id="setup-area">
             <div id="qrcode"></div>
             <p style="font-size:0.7rem; color:#888;">Scanning connects automatically</p>
@@ -74,12 +71,9 @@
     let myName = "", conn, peer, currentRoomId = "";
 
     function goToStep2() {
-        const nameInput = document.getElementById('deviceName').value.trim();
-        if (nameInput === "") {
-            document.getElementById('nameError').style.display = "block";
-            return;
-        }
-        myName = nameInput;
+        const val = document.getElementById('deviceName').value.trim();
+        if (!val) { document.getElementById('nameError').style.display = "block"; return; }
+        myName = val;
         document.getElementById('step-1').classList.add('hidden');
         document.getElementById('step-2').classList.remove('hidden');
     }
@@ -88,51 +82,58 @@
         if (mode === 'join') {
             const idInput = document.getElementById('joinInput').value.trim();
             if (idInput.length !== 4) {
+                document.getElementById('idError').innerText = "ID must be exactly 4 digits.";
                 document.getElementById('idError').style.display = "block";
                 return;
             }
             currentRoomId = idInput;
-        }
-
-        // Only move to main app if validation passes
-        document.getElementById('step-2').classList.add('hidden');
-        document.getElementById('main-app').classList.remove('hidden');
-
-        if (mode === 'create') {
-            currentRoomId = Math.random().toString(36).substring(2, 6);
-            peer = new Peer(currentRoomId);
-            
-            peer.on('open', (id) => {
-                document.getElementById('displayId').innerText = id;
-                const url = window.location.href.split('?')[0] + "?r=" + id;
-                new QRCode(document.getElementById("qrcode"), { text: url, width: 120, height: 120 });
-            });
-
-            peer.on('connection', (c) => {
-                conn = c;
-                handleConnection();
-            });
-
+            startConnection(false);
         } else {
-            peer = new Peer();
-            peer.on('open', () => {
-                document.getElementById('displayId').innerText = currentRoomId;
-                conn = peer.connect(currentRoomId);
-                handleConnection();
-
-                // Error handling if ID doesn't exist
-                setTimeout(() => {
-                    if (!conn.open) {
-                        alert("Could not connect. Please check the Room ID and try again.");
-                        location.reload(); // Restart the app
-                    }
-                }, 5000); 
-            });
+            currentRoomId = Math.random().toString(36).substring(2, 6);
+            startConnection(true);
         }
     }
 
-    function handleConnection() {
+    function startConnection(isHost) {
+        // If joining, we use a random Peer ID so we don't conflict with the Host
+        peer = new Peer(isHost ? currentRoomId : null);
+
+        peer.on('open', (id) => {
+            document.getElementById('step-2').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+            document.getElementById('displayId').innerText = currentRoomId;
+
+            if (isHost) {
+                const url = window.location.href.split('?')[0] + "?r=" + currentRoomId;
+                new QRCode(document.getElementById("qrcode"), { text: url, width: 120, height: 120 });
+                peer.on('connection', (c) => { conn = c; handleConnection(); });
+            } else {
+                conn = peer.connect(currentRoomId);
+                // Set a timeout to check if the connection actually opens
+                const timeout = setTimeout(() => {
+                    if (!conn.open) {
+                        alert("Room not found! Ensure the ID is correct and the host is online.");
+                        location.reload(); 
+                    }
+                }, 4000); 
+                handleConnection(timeout);
+            }
+        });
+
+        peer.on('error', (err) => {
+            if (isHost && err.type === 'unavailable-id') {
+                alert("This Room ID is already taken. Please try again.");
+                location.reload();
+            } else {
+                alert("Connection Error: " + err.type);
+                location.reload();
+            }
+        });
+    }
+
+    function handleConnection(timeout) {
         conn.on('open', () => {
+            if (timeout) clearTimeout(timeout);
             document.getElementById('status').innerHTML = "Connected! ✅";
             document.getElementById('setup-area').classList.add('hidden');
         });
@@ -161,7 +162,7 @@
         const file = document.getElementById('fileInput').files[0];
         if (file && conn?.open) {
             conn.send({ sender: myName, type: 'file', file: file, fileName: file.name, fileType: file.type });
-            addMessage(`Sent file: ${file.name}`, 'sent', myName);
+            addMessage(`Sent: ${file.name}`, 'sent', myName);
         }
     }
 
