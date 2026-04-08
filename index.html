@@ -3,23 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuickShare P2P</title>
+    <title>QuickShare P2P + Files</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; padding: 20px; background: #f0f2f5; }
-        .container { width: 100%; max-width: 400px; background: white; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
-        h2 { margin-top: 0; color: #1a1a1a; }
-        #chat { height: 250px; border: 1px solid #eee; overflow-y: auto; margin-bottom: 15px; padding: 10px; border-radius: 10px; background: #fdfdfd; text-align: left; font-size: 0.9rem; display: flex; flex-direction: column; }
-        input { width: calc(100% - 24px); padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
-        button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
-        .status { font-size: 0.85rem; margin-bottom: 15px; color: #666; }
-        #qrcode { display: flex; justify-content: center; margin-top: 20px; }
-        .msg-box { margin-bottom: 8px; padding: 8px 12px; border-radius: 12px; max-width: 80%; }
-        .name-tag { font-size: 0.7rem; font-weight: bold; margin-bottom: 2px; display: block; opacity: 0.7; }
-        .received { background: #e9ecef; align-self: flex-start; }
+        .container { width: 100%; max-width: 450px; background: white; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
+        #chat { height: 300px; border: 1px solid #eee; overflow-y: auto; margin-bottom: 15px; padding: 10px; border-radius: 10px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px; }
+        .msg-box { padding: 10px 14px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; position: relative; text-align: left; }
+        .name-tag { font-size: 0.7rem; font-weight: bold; margin-bottom: 4px; display: block; opacity: 0.7; }
+        .received { background: #e9ecef; align-self: flex-start; color: #333; }
         .sent { background: #007bff; color: white; align-self: flex-end; }
-        #setup-name { margin-bottom: 20px; }
+        .input-group { display: flex; gap: 8px; margin-bottom: 10px; }
+        input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+        .btn { padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.2s; }
+        .btn-send { background: #007bff; color: white; }
+        .btn-file { background: #6c757d; color: white; width: 45px; display: flex; align-items: center; justify-content: center; }
+        .file-link { color: inherit; font-weight: bold; text-decoration: underline; display: block; margin-top: 5px; }
+        #qrcode { display: flex; justify-content: center; margin-top: 20px; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
@@ -29,46 +31,50 @@
     
     <div id="setup-name">
         <p>Give this device a name:</p>
-        <input type="text" id="deviceName" placeholder="e.g. PC or Phone">
-        <button onclick="startApp()">Start Sharing</button>
+        <input type="text" id="deviceName" placeholder="e.g. PC or Phone" style="width: 90%; margin-bottom: 10px;">
+        <button class="btn btn-send" style="width: 100%;" onclick="startApp()">Start Sharing</button>
     </div>
 
-    <div id="main-app" style="display:none;">
-        <div id="status" class="status">Connecting...</div>
+    <div id="main-app" class="hidden">
+        <div id="status" style="font-size: 0.8rem; margin-bottom: 10px; color: #666;">Connecting...</div>
         <div id="chat"></div>
-        <input type="text" id="messageInput" placeholder="Paste link or text...">
-        <button onclick="sendMessage()">Send</button>
+        
+        <div class="input-group">
+            <label class="btn btn-file">
+                📎 <input type="file" id="fileInput" class="hidden" onchange="sendFile()">
+            </label>
+            <input type="text" id="messageInput" placeholder="Type or paste...">
+            <button class="btn btn-send" onclick="sendMessage()">Send</button>
+        </div>
         
         <div id="setup-area">
             <div id="qrcode"></div>
-            <p style="font-size:0.8rem; color:#888; margin-top:10px;">Scan to connect your other device</p>
+            <p style="font-size:0.8rem; color:#888; margin-top:10px;">Scan to connect another device</p>
         </div>
     </div>
 </div>
 
 <script>
-    let myName = "";
-    let conn;
+    let myName = "", conn, peer;
     const urlParams = new URLSearchParams(window.location.search);
     const roomId = urlParams.get('r');
 
     function startApp() {
         myName = document.getElementById('deviceName').value || "Device";
-        document.getElementById('setup-name').style.display = "none";
-        document.getElementById('main-app').style.display = "block";
+        document.getElementById('setup-name').classList.add('hidden');
+        document.getElementById('main-app').classList.remove('hidden');
         initPeer();
     }
 
     function initPeer() {
         const isReceiver = !!roomId;
-        const shortId = isReceiver ? null : Math.random().toString(36).substring(2, 6);
-        const peer = new Peer(isReceiver ? null : shortId);
+        peer = new Peer(isReceiver ? null : roomId);
 
         peer.on('open', (id) => {
             if (!isReceiver) {
                 const shareUrl = window.location.href.split('?')[0] + "?r=" + id;
                 new QRCode(document.getElementById("qrcode"), { text: shareUrl, width: 140, height: 140 });
-                document.getElementById('status').innerText = `ID: ${id} | Waiting for connection...`;
+                document.getElementById('status').innerText = "Waiting for connection...";
             } else {
                 conn = peer.connect(roomId);
                 handleConnection();
@@ -84,37 +90,55 @@
     function handleConnection() {
         conn.on('open', () => {
             document.getElementById('status').innerText = "Connected! ✅";
-            document.getElementById('setup-area').style.display = "none";
+            document.getElementById('setup-area').classList.add('hidden');
         });
         conn.on('data', (data) => {
-            // Data format is { sender: "Name", text: "Message" }
-            addMessage(data.text, 'received', data.sender);
+            if (data.type === 'file') {
+                const blob = new Blob([data.file], { type: data.fileType });
+                const url = URL.createObjectURL(blob);
+                addMessage(`Shared a file: <a class="file-link" href="${url}" download="${data.fileName}">${data.fileName}</a>`, 'received', data.sender, true);
+            } else {
+                addMessage(data.text, 'received', data.sender);
+            }
         });
     }
 
     function sendMessage() {
         const input = document.getElementById('messageInput');
-        const text = input.value;
-        if (text && conn && conn.open) {
-            const payload = { sender: myName, text: text };
-            conn.send(payload);
-            addMessage(text, 'sent', myName);
+        if (input.value && conn?.open) {
+            conn.send({ sender: myName, text: input.value, type: 'text' });
+            addMessage(input.value, 'sent', myName);
             input.value = "";
         }
     }
 
-    function addMessage(text, type, sender) {
+    function sendFile() {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        if (file && conn?.open) {
+            conn.send({
+                sender: myName,
+                type: 'file',
+                file: file,
+                fileName: file.name,
+                fileType: file.type
+            });
+            addMessage(`Sent file: ${file.name}`, 'sent', myName);
+            fileInput.value = ""; // Reset input
+        }
+    }
+
+    function addMessage(text, type, sender, isHTML = false) {
         const chat = document.getElementById('chat');
         const div = document.createElement('div');
         div.className = `msg-box ${type}`;
-        div.innerHTML = `<span class="name-tag">${sender}</span>${text}`;
+        const content = `<span class="name-tag">${sender}</span>${text}`;
+        isHTML ? (div.innerHTML = content) : (div.innerText = "") || (div.innerHTML = content);
         chat.appendChild(div);
         chat.scrollTop = chat.scrollHeight;
     }
 
-    document.getElementById('messageInput').addEventListener("keypress", (e) => {
-        if (e.key === "Enter") sendMessage();
-    });
+    document.getElementById('messageInput').addEventListener("keypress", (e) => { if (e.key === "Enter") sendMessage(); });
 </script>
 
 </body>
