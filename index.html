@@ -16,7 +16,6 @@
         .sent { background: #007bff; color: white; align-self: flex-end; }
         .input-group { display: flex; gap: 8px; margin-bottom: 10px; }
         input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
-        input:focus { border-color: #007bff; }
         .btn { padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: 0.2s; }
         .btn-primary { background: #007bff; color: white; width: 100%; margin-top: 5px; }
         .btn-outline { background: #f8f9fa; border: 1px solid #ddd; width: 100%; margin-top: 5px; }
@@ -32,27 +31,23 @@
 <div class="container">
     <h2>Instant Share</h2>
     
-    <!-- Step 1: Name Entry -->
     <div id="step-1">
-        <p>Enter your name to start</p>
+        <p>Step 1: Enter your name</p>
         <input type="text" id="deviceName" placeholder="Name is required">
         <p id="nameError" class="error-msg">Please enter a name.</p>
         <button class="btn btn-primary" onclick="handleNameSubmit()">Continue</button>
     </div>
 
-    <!-- Step 2: Selection (Hidden if QR used) -->
     <div id="step-2" class="hidden">
-        <p>Choose an option</p>
+        <p>Step 2: Join or Create</p>
         <div style="display: flex; flex-direction: column; gap: 10px;">
             <button class="btn btn-primary" onclick="initRoom('create')">Create New Room</button>
             <hr style="width:100%; border:0; border-top:1px solid #eee;">
             <input type="text" id="joinInput" placeholder="4-digit Room ID" maxlength="4">
-            <p id="idError" class="error-msg">ID must be exactly 4 digits.</p>
             <button class="btn btn-outline" onclick="initRoom('join')">Join Room</button>
         </div>
     </div>
 
-    <!-- Step 3: Main App -->
     <div id="main-app" class="hidden">
         <div id="status" style="font-size: 0.8rem; margin-bottom: 10px; color: #666;">
             Room ID: <span id="displayId" class="id-badge">...</span>
@@ -65,28 +60,30 @@
         </div>
         <div id="setup-area">
             <div id="qrcode"></div>
-            <p id="helperText" style="font-size:0.7rem; color:#888;">Scanning connects automatically</p>
+            <p style="font-size:0.7rem; color:#888;">Scan to connect another device</p>
         </div>
     </div>
 </div>
 
 <script>
     let myName = "", conn, peer, currentRoomId = "";
+
+    // Check URL for Room ID immediately on load
     const urlParams = new URLSearchParams(window.location.search);
-    const urlRoomId = urlParams.get('r');
+    const urlId = urlParams.get('r');
 
     function handleNameSubmit() {
-        const val = document.getElementById('deviceName').value.trim();
-        if (!val) { 
-            document.getElementById('nameError').style.display = "block"; 
-            return; 
+        const nameVal = document.getElementById('deviceName').value.trim();
+        if (!nameVal) {
+            document.getElementById('nameError').style.display = "block";
+            return;
         }
-        myName = val;
+        myName = nameVal;
         document.getElementById('step-1').classList.add('hidden');
 
-        // If URL has a room ID (from QR code), skip Step 2
-        if (urlRoomId && urlRoomId.length === 4) {
-            currentRoomId = urlRoomId;
+        // FORCE JOIN if ID exists in URL
+        if (urlId && urlId.length === 4) {
+            currentRoomId = urlId;
             initRoom('join');
         } else {
             document.getElementById('step-2').classList.remove('hidden');
@@ -94,45 +91,49 @@
     }
 
     function initRoom(mode) {
-        if (mode === 'join' && !urlRoomId) {
-            const idInput = document.getElementById('joinInput').value.trim();
-            if (idInput.length !== 4) {
-                document.getElementById('idError').style.display = "block";
+        // If we are in manual join mode (no URL ID), grab from input
+        if (mode === 'join' && !currentRoomId) {
+            currentRoomId = document.getElementById('joinInput').value.trim();
+            if (currentRoomId.length !== 4) {
+                alert("Please enter a 4-digit ID.");
                 return;
             }
-            currentRoomId = idInput;
         }
 
         document.getElementById('step-2').classList.add('hidden');
         document.getElementById('main-app').classList.remove('hidden');
+        document.getElementById('displayId').innerText = currentRoomId;
+
         startConnection(mode === 'create');
     }
 
     function startConnection(isHost) {
+        // Host uses the ID, Joiner uses a random ID to call the Host
         peer = new Peer(isHost ? currentRoomId : null);
 
         peer.on('open', (id) => {
             if (isHost) {
-                currentRoomId = id;
-                document.getElementById('displayId').innerText = id;
-                const shareUrl = window.location.href.split('?')[0] + "?r=" + id;
+                const shareUrl = window.location.href.split('?')[0] + "?r=" + currentRoomId;
                 new QRCode(document.getElementById("qrcode"), { text: shareUrl, width: 120, height: 120 });
-                peer.on('connection', (c) => { conn = c; handleConnection(); });
+                peer.on('connection', (c) => { 
+                    conn = c; 
+                    handleConnection(); 
+                });
             } else {
-                document.getElementById('displayId').innerText = currentRoomId;
                 conn = peer.connect(currentRoomId);
                 const timeout = setTimeout(() => {
                     if (!conn.open) {
-                        alert("Room not found! Ensure the host is still online.");
-                        window.location.href = window.location.href.split('?')[0]; 
+                        alert("Could not find room. It may have closed.");
+                        window.location.href = window.location.href.split('?')[0];
                     }
                 }, 5000);
                 handleConnection(timeout);
             }
         });
 
-        peer.on('error', () => {
-            alert("Connection error. Refreshing...");
+        peer.on('error', (err) => {
+            console.error(err);
+            alert("Connection error. Returning to home.");
             window.location.href = window.location.href.split('?')[0];
         });
     }
@@ -143,6 +144,7 @@
             document.getElementById('status').innerHTML = "Connected! ✅";
             document.getElementById('setup-area').classList.add('hidden');
         });
+        
         conn.on('data', (data) => {
             if (data.type === 'file') {
                 const blob = new Blob([data.file], { type: data.fileType });
@@ -167,7 +169,7 @@
         const file = document.getElementById('fileInput').files[0];
         if (file && conn?.open) {
             conn.send({ sender: myName, type: 'file', file: file, fileName: file.name, fileType: file.type });
-            addMessage(`Sent: ${file.name}`, 'sent', myName);
+            addMessage(`Sent file: ${file.name}`, 'sent', myName);
         }
     }
 
